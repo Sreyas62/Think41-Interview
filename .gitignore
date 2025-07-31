@@ -58,8 +58,12 @@ Thumbs.db
 # Yarn Integrity file
 .yarn-integrity
 
-# dotenv environment variables file
+# Environment variables
 .env
+.env.*
+!.env.example
+
+# dotenv environment variables file
 
 # Next.js
 .next/

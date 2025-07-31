@@ -7,6 +7,11 @@ const productController = require('../controllers/productController');
 // @access  Public
 router.get('/', productController.getProducts);
 
+// @route   GET /api/products/departments
+// @desc    Get all departments
+// @access  Public
+router.get('/departments', productController.getDepartments);
+
 // @route   GET /api/products/:id
 // @desc    Get single product by ID
 // @access  Public

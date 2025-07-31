@@ -30,6 +30,11 @@ const productSchema = new mongoose.Schema({
         required: true
     },
     department: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Department',
+        required: true
+    },
+    department: {
         type: String,
         required: true
     },

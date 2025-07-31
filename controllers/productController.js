@@ -1,65 +1,68 @@
 const Product = require('../models/Product');
+const Department = require('../models/Department');
 const asyncHandler = require('express-async-handler');
 
 // @desc    Fetch all products with pagination and filtering
 // @route   GET /api/products
 // @access  Public
 const getProducts = asyncHandler(async (req, res) => {
-    const pageSize = 10;
-    const page = Number(req.query.page) || 1;
-    
-    // Build query object for filtering
-    const query = {};
-    
-    // Filter by category if provided
-    if (req.query.category) {
-        query.category = req.query.category;
-    }
-    
-    // Filter by brand if provided
-    if (req.query.brand) {
-        query.brand = req.query.brand;
-    }
-    
-    // Filter by department if provided
-    if (req.query.department) {
-        query.department = req.query.department;
-    }
-    
-    // Search by name if keyword is provided
-    if (req.query.keyword) {
-        query.$or = [
-            { name: { $regex: req.query.keyword, $options: 'i' } },
-            { category: { $regex: req.query.keyword, $options: 'i' } },
-            { brand: { $regex: req.query.keyword, $options: 'i' } },
-            { department: { $regex: req.query.keyword, $options: 'i' } }
-        ];
-    }
-    
-    // Price range filtering
-    if (req.query.minPrice || req.query.maxPrice) {
-        query.retail_price = {};
-        if (req.query.minPrice) {
-            query.retail_price.$gte = Number(req.query.minPrice);
-        }
-        if (req.query.maxPrice) {
-            query.retail_price.$lte = Number(req.query.maxPrice);
-        }
-    }
-
     try {
-        const count = await Product.countDocuments(query);
+        // Pagination
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        // Build query
+        const query = {};
+        
+        // Filter by category if provided
+        if (req.query.category) {
+            query.category = { $regex: req.query.category, $options: 'i' };
+        }
+        
+        // Filter by department if provided
+        if (req.query.department) {
+            const department = await Department.findOne({ name: { $regex: req.query.department, $options: 'i' } });
+            if (department) {
+                query.department = department._id;
+            } else {
+                // If department not found, return empty results
+                return res.json({
+                    success: true,
+                    count: 0,
+                    total: 0,
+                    page,
+                    pages: 0,
+                    data: []
+                });
+            }
+        }
+        
+        // Search by keyword if provided
+        if (req.query.keyword) {
+            query.$or = [
+                { name: { $regex: req.query.keyword, $options: 'i' } },
+                { description: { $regex: req.query.keyword, $options: 'i' } },
+                { brand: { $regex: req.query.keyword, $options: 'i' } },
+                { category: { $regex: req.query.keyword, $options: 'i' } }
+            ];
+        }
+
+        // Execute query with pagination and populate department
         const products = await Product.find(query)
-            .limit(pageSize)
-            .skip(pageSize * (page - 1))
-            .sort({ retail_price: 1 });
+            .populate('department', 'name')
+            .skip(skip)
+            .limit(limit);
+
+        // Get total count for pagination
+        const total = await Product.countDocuments(query);
 
         res.json({
             success: true,
-            count,
-            pages: Math.ceil(count / pageSize),
+            count: products.length,
+            total,
             page,
-            pageSize,
+            pages: Math.ceil(total / limit),
             data: products
         });
     } catch (error) {
@@ -77,19 +80,20 @@ const getProducts = asyncHandler(async (req, res) => {
 // @access  Public
 const getProductById = asyncHandler(async (req, res) => {
     try {
-        const product = await Product.findOne({ id: req.params.id });
-        
-        if (product) {
-            res.json({
-                success: true,
-                data: product
-            });
-        } else {
-            res.status(404).json({
+        const product = await Product.findOne({ id: req.params.id })
+            .populate('department', 'name');
+            
+        if (!product) {
+            return res.status(404).json({
                 success: false,
                 message: 'Product not found'
             });
         }
+        
+        res.json({
+            success: true,
+            data: product
+        });
     } catch (error) {
         console.error(`Error fetching product ${req.params.id}:`, error);
         res.status(500).json({
@@ -100,7 +104,30 @@ const getProductById = asyncHandler(async (req, res) => {
     }
 });
 
+// @desc    Get all departments
+// @route   GET /api/products/departments
+// @access  Public
+const getDepartments = asyncHandler(async (req, res) => {
+    try {
+        const departments = await Department.find({}, 'name').sort({ name: 1 });
+        
+        res.json({
+            success: true,
+            count: departments.length,
+            data: departments
+        });
+    } catch (error) {
+        console.error('Error fetching departments:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error',
+            error: error.message
+        });
+    }
+});
+
 module.exports = {
     getProducts,
-    getProductById
+    getProductById,
+    getDepartments
 };

@@ -1,84 +1,63 @@
-const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
-const { parse } = require('csv-parse');
-const path = require('path');
+const csv = require('csv-parser');
+const mongoose = require('mongoose');
+require('dotenv').config();
 
-// Create a new database connection
-const db = new sqlite3.Database('products.db');
+// Connect to MongoDB
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/mern-ecommerce';
 
-// Read the CSV file
-const csvFilePath = path.join(__dirname, 'products.csv');
-const records = [];
+mongoose.connect(MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+})
+.then(() => console.log('MongoDB connected successfully'))
+.catch(err => console.error('MongoDB connection error:', err));
 
-console.log('Starting CSV import...');
-
-// Create the products table
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS products (
-    id INTEGER PRIMARY KEY,
-    cost REAL,
-    category TEXT,
-    name TEXT,
-    brand TEXT,
-    retail_price REAL,
-    department TEXT,
-    sku TEXT UNIQUE,
-    distribution_center_id INTEGER
-  )`);
-
-  // Create indexes for better query performance
-  db.run('CREATE INDEX IF NOT EXISTS idx_category ON products(category)');
-  db.run('CREATE INDEX IF NOT EXISTS idx_department ON products(department)');
-  db.run('CREATE INDEX IF NOT EXISTS idx_brand ON products(brand)');
-
-  // Start a transaction for better performance
-  db.run('BEGIN TRANSACTION');
-
-  // Read and parse the CSV file
-  fs.createReadStream(csvFilePath)
-    .pipe(parse({ 
-      delimiter: ',',
-      columns: true, // Use the first line as column names
-      skip_empty_lines: true
-    }))
-    .on('data', (row) => {
-      // Prepare the insert statement
-      const stmt = db.prepare(`
-        INSERT OR REPLACE INTO products 
-        (id, cost, category, name, brand, retail_price, department, sku, distribution_center_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      
-      // Execute the statement with the row data
-      stmt.run(
-        row.id,
-        row.cost,
-        row.category,
-        row.name,
-        row.brand,
-        row.retail_price,
-        row.department,
-        row.sku,
-        row.distribution_center_id
-      );
-      
-      stmt.finalize();
-    })
-    .on('end', () => {
-      // Commit the transaction
-      db.run('COMMIT', (err) => {
-        if (err) {
-          console.error('Error committing transaction:', err);
-        } else {
-          console.log('CSV file successfully imported into SQLite database');
-        }
-        // Close the database connection
-        db.close();
-      });
-    })
-    .on('error', (error) => {
-      console.error('Error reading CSV file:', error);
-      db.run('ROLLBACK');
-      db.close();
-    });
+// Define Product Schema
+const productSchema = new mongoose.Schema({
+    name: String,
+    description: String,
+    price: Number,
+    category: String,
+    stock: Number,
+    image: String,
+    rating: { type: Number, default: 0 },
+    numReviews: { type: Number, default: 0 },
+    createdAt: { type: Date, default: Date.now }
 });
+
+const Product = mongoose.model('Product', productSchema);
+
+// Read and process the CSV file
+const products = [];
+
+fs.createReadStream('products.csv')
+  .pipe(csv())
+  .on('data', (row) => {
+    // Transform the data as needed to match your schema
+    const product = {
+      name: row.name || row.title || row.product_name,
+      description: row.description || '',
+      price: parseFloat(row.price || 0),
+      category: row.category || 'Uncategorized',
+      stock: parseInt(row.stock || row.quantity || 0, 10),
+      image: row.image || row.image_url || ''
+    };
+    products.push(product);
+  })
+  .on('end', async () => {
+    try {
+      // Clear existing products (optional)
+      await Product.deleteMany({});
+      
+      // Insert new products
+      const result = await Product.insertMany(products);
+      console.log(`Successfully imported ${result.length} products`);
+      
+      // Close the MongoDB connection
+      mongoose.connection.close();
+    } catch (error) {
+      console.error('Error importing products:', error);
+      mongoose.connection.close();
+    }
+  });
